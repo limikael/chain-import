@@ -4,6 +4,7 @@ import {resolveAllExports} from 'resolve-import'
 import resolvePackagePath from "resolve-package-path";
 import fs, {promises as fsp} from "fs";
 import path from "node:path";
+import {DeclaredError} from "./js-util.js";
 
 export default class ChainMeta {
 	constructor({cwd, keyword, exportPath, conditions, extraModuleDirs, extraModules,
@@ -209,13 +210,19 @@ export async function chainImport(options) {
 				functionNames.push(k);
 
 	let chain={chainMeta: chainMeta};
-	for (let functionName of functionNames)
+	for (let functionName of functionNames) {
+		let fns=[];
+		for (let mod of mods)
+			if (typeof mod[functionName]=="function")
+				fns.push(mod[functionName]);
+
+		fns.sort((a,b)=>a.priority??10-b.priority??10);
 		chain[functionName]=async function(...args) {
 			chainMeta.assertClean();
-			for (let mod of mods)
-				if (typeof mod[functionName]=="function")
-					await mod[functionName](...args);
+			for (let fn of fns)
+				await fn(...args);
 		}
+	}
 
 	return chain;
 }
@@ -257,4 +264,15 @@ export async function chainEnable(chainConf, moduleName) {
 
 export async function chainDisable(chainConf, moduleName) {
 	await chainSetEnable(chainConf,moduleName,false);
+}
+
+export async function chainList(chain, query={}) {
+	let chainMeta=chain.chainMeta;
+	let infos=chainMeta.getModuleInfos(query);
+
+	return infos.map(info=>({
+		name: info.name,
+		description: info.pkg.description,
+		enabled: chainMeta.isModuleEnabled(info.name),
+	}));
 }
