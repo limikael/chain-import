@@ -1,0 +1,7 @@
+{
+	"name": "testproject",
+	"type": "module",
+	"dependencies": {
+		"someplugin": "1.0.0"
+	}
+}
