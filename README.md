@@ -4,15 +4,11 @@ Compose and execute exports from multiple packages as a single interface.
 
 `chain-import` lets you build **zero-configuration plugin systems** using standard Node.js dependency resolution and `package.json` exports. It discovers plugins automatically, merges their exported functions, and executes them in a predictable order.
 
----
-
 ## Installation
 
 ```bash
 npm install chain-import
 ```
-
----
 
 ## Quick Example
 
@@ -29,8 +25,6 @@ await chain.build({ messages: [] });
 
 If multiple plugins implement `build`, all of them will be executed in sequence.
 
----
-
 ## How It Works
 
 1. `chain-import` scans your project's **dependencies**
@@ -38,8 +32,6 @@ If multiple plugins implement `build`, all of them will be executed in sequence.
 3. It imports those modules
 4. It merges their exported functions
 5. Calling a method executes all implementations
-
----
 
 ## Plugin Example
 
@@ -62,8 +54,6 @@ export async function build(ctx) {
 }
 ```
 
----
-
 ## Multiple Plugins
 
 If multiple plugins export the same function:
@@ -80,8 +70,6 @@ await chain.build(ctx);
 
 Will call all implementations sequentially.
 
----
-
 ## Execution Order
 
 Plugins can define priority:
@@ -97,21 +85,15 @@ build.priority = 5;
 * Lower number = earlier execution
 * Default priority = `10`
 
----
-
 ## Error Handling
 
 * Execution is **fail-fast**
 * If a plugin throws, remaining plugins are not executed
 
----
-
 ## Return Values
 
 * Return values are ignored
 * Plugins should mutate the provided context object
-
----
 
 ## Plugin Discovery
 
@@ -131,8 +113,6 @@ const chain = await chainImport({
 
 Only packages with that keyword in `package.json` are included.
 
----
-
 ## Enabling / Disabling Plugins
 
 ### Plugin default
@@ -147,8 +127,6 @@ Plugins can define:
 
 If omitted → defaults to enabled.
 
----
-
 ### Project configuration
 
 ```json
@@ -160,8 +138,6 @@ If omitted → defaults to enabled.
 
 * Matches exact package names
 * No partial matching
-
----
 
 ### Rules
 
@@ -175,8 +151,6 @@ If a plugin appears in both lists:
 
 * Behavior is undefined (do not rely on it)
 
----
-
 ## Metadata API
 
 ### Load metadata
@@ -189,8 +163,6 @@ const meta = await chainLoadMeta({
   exportPath: "build"
 });
 ```
-
----
 
 ### List plugins
 
@@ -212,8 +184,6 @@ Returns:
 ]
 ```
 
----
-
 ## Enable / Disable via API
 
 ```js
@@ -224,8 +194,6 @@ await chainDisable(meta, "other-plugin");
 ```
 
 This updates the project's `package.json`.
-
----
 
 ## Commander Integration
 
@@ -250,8 +218,6 @@ chainAttachCommanderCommand(chain, program, "publish")
 await program.parseAsync(process.argv);
 ```
 
----
-
 ### Plugin command
 
 ```js
@@ -259,8 +225,6 @@ export async function publish({ edge, args }) {
   console.log("Publishing", args[0], edge ? "to edge" : "");
 }
 ```
-
----
 
 ### Behavior
 
@@ -272,16 +236,12 @@ export async function publish({ edge, args }) {
   * fail-fast execution
   * no return values
 
----
-
 ## When to Use
 
 * Plugin-based systems
 * Extensible build pipelines
 * CLI tools with pluggable commands
 * Systems where behavior should be composed from dependencies
-
----
 
 ## Design Principles
 
@@ -290,8 +250,6 @@ export async function publish({ edge, args }) {
 * Uses standard Node.js features (`exports`, dependencies)
 * Deterministic execution
 * Simple mental model
-
----
 
 ## Summary
 
