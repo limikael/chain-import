@@ -7,89 +7,128 @@ import path from "node:path";
 import {DeclaredError} from "./js-util.js";
 
 export default class ChainMeta {
-	constructor({cwd, keyword, exportPath, conditions, extraModuleDirs, extraModules,
-			defaultEnableKey, enableKey, disableKey}) {
-		this.cwd=cwd;
+	constructor({cwd, roots, keyword, exportPath, conditions, workspaceKey,
+			defaultEnableKey, enableKey, disableKey, internalKey, internal}) {
+		this.pkgDir=cwd;
+		this.roots=arrayify(roots);
 		this.keyword=keyword;
 		this.exportPath=exportPath;
 		if (!this.exportPath.startsWith("."))
 			this.exportPath="./"+this.exportPath;
 
 		this.conditions=conditions;
-		this.extraModuleDirs=arrayify(extraModuleDirs);
-		this.extraModules=arrayify(extraModules);
 		this.defaultEnableKey=defaultEnableKey;
 		this.enableKey=enableKey;
 		this.disableKey=disableKey;
+		this.workspaceKey=workspaceKey;
+		this.internal=arrayify(internal);
+		this.internalKey=internalKey;
 
 		this.chainMeta=this;
+		this.moduleInfos=[];
+		this.moduleInfosByName={};
+	}
+
+	cwd() {
+		return this.pkgDir;
 	}
 
 	getConf() {
 		return ({
-			cwd: this.cwd,
+			cwd: this.cwd(),
+			roots: this.roots,
 			keyword: this.keyword,
 			exportPath: this.exportPath,
 			conditions: this.conditions,
-			extraModuleDirs: this.extraModuleDirs,
-			extraModules: this.extraModules,
 			defaultEnableKey: this.defaultEnableKey,
 			enableKey: this.enableKey,
 			disableKey: this.disableKey,
+			workspaceKey: this.workspaceKey,
+			internal: this.internal,
+			internalKey: this.internalKey,
 		});
 	}
 
 	async load() {
-		this.pkgPath=await packageUp({cwd: this.cwd});
-		if (path.dirname(this.pkgPath)!=path.resolve(this.cwd))
-			throw new Error("No package.json found");
+		if (this.cwd()) {
+			let pkgJsonPath=path.join(this.cwd(),"package.json");
+			this.pkg=JSON.parse(await fsp.readFile(pkgJsonPath));
+			await this.processPackagePath(this.cwd(),true);
+		}
 
-		this.pkg=JSON.parse(await fsp.readFile(this.pkgPath));
-		this.moduleInfos=[];
+		for (let root of this.roots)
+			await this.processPackagePath(root,true);
+	}
 
-		let deps=this.pkg.dependencies;
-		if (!deps)
-			deps={};
+	async processPackagePath(pkgPath, root) {
+		let pkgJsonPath=path.join(pkgPath,"package.json");
+		let pkg=JSON.parse(await fsp.readFile(pkgJsonPath));
+		if (!root &&
+				this.keyword &&
+				!arrayify(pkg.keywords).includes(this.keyword))
+			return;
 
+		if (path.basename(pkgPath)!=pkg.name)
+			throw new Error("Unexpected module name / path: "+pkgPath);
+
+		if (this.moduleInfosByName[pkg.name]) {
+			if (this.moduleInfosByName[pkg.name].version!=pkg.version)
+				throw new Error(
+					"Conflicting plugin versions: "+pkg.name+": "+
+					pkg.version+" / "+this.moduleInfosByName[pkg.name].version
+				);
+			return;
+		}
+
+		if (pkg.type!="module")
+			throw new Error("Not a module: "+pkgPath);
+
+		let allExports=await resolveAllExports(pkgJsonPath,{conditions: this.conditions});
+		if (allExports[this.exportPath]) {
+			let moduleInfo={
+				name: pkg.name,
+				version: pkg.version,
+				description: pkg.description,
+				exportPathname: allExports[this.exportPath].pathname,
+				defaultEnabled: true,
+				internal: false
+			};
+
+			if (this.defaultEnableKey &&
+					pkg.hasOwnProperty(this.defaultEnableKey))
+				moduleInfo.defaultEnabled=pkg[this.defaultEnableKey];
+
+			if (this.internalKey)
+				moduleInfo.internal||=Boolean(pkg[this.internalKey]);
+
+			if (this.internal.includes(pkg.name) || root)
+				moduleInfo.internal=true;
+
+			if (moduleInfo.internal && !moduleInfo.defaultEnabled)
+				throw new Error("Internal plugins can't be disabled by default.");
+
+			this.moduleInfos.push(moduleInfo);
+			this.moduleInfosByName[pkg.name]=moduleInfo;
+		}
+
+		let deps=pkg.dependencies??{};
 		for (let depName in deps) {
-			let p=resolvePackagePath(depName,this.pkgPath);
+			let p=resolvePackagePath(depName,pkgPath);
 			if (!p)
 				throw new Error("cannot resolve: "+depName);
 
-			await this.processPackagePath(p);
+			await this.processPackagePath(path.dirname(p));
 		}
 
-		for (let parentDir of this.extraModuleDirs) {
-			for (let dir of await fsp.readdir(parentDir)) {
-				let p=path.join(parentDir,dir,"package.json");
-				await this.processPackagePath(p);
+		if (this.workspaceKey && pkg[this.workspaceKey]) {
+			let workspaces=arrayify(pkg[this.workspaceKey]);
+			for (let workspace of workspaces) {
+				for (let dir of await fsp.readdir(path.join(pkgPath,workspace))) {
+					let p=path.join(pkgPath,workspace,dir);
+					await this.processPackagePath(p);
+				}
 			}
 		}
-	}
-
-	async processPackagePath(depPackagePath) {
-		let depPkg=JSON.parse(await fsp.readFile(depPackagePath));
-		if (this.keyword) {
-			if (!depPkg.keywords || !depPkg.keywords.includes(this.keyword))
-				return;
-		}
-
-		let pathPackageName=path.basename(path.dirname(depPackagePath))
-		if (pathPackageName!=depPkg.name)
-			throw new Error("Unexpected module name / path: "+depPackagePath);
-
-		if (depPkg.type!="module")
-			throw new Error("Not a module: "+depPackagePath);
-
-		let allExports=await resolveAllExports(depPackagePath,{conditions: this.conditions});
-		if (!allExports[this.exportPath])
-			return;
-
-		this.moduleInfos.push({
-			pkg: depPkg,
-			name: depPkg.name,
-			exportPathname: allExports[this.exportPath].pathname,
-		});
 	}
 
 	async importModules() {
@@ -99,19 +138,19 @@ export default class ChainMeta {
 		for (let moduleInfo of this.getModuleInfos({enabled: true}))
 			mods.push(await import(moduleInfo.exportPathname));
 
-		for (let mod of this.extraModules)
-			mods.push(mod);
-
 		return mods;
 	}
 
-	getModuleInfos({enabled, name}={}) {
+	getModuleInfos({enabled, name, internal}={}) {
 		return this.moduleInfos.filter(moduleInfo=>{
 			if (enabled!==undefined &&
 					!this.isModuleEnabled(moduleInfo.name))
 				return false;
 
 			if (name && moduleInfo.name!=name)
+				return false;
+
+			if (internal!==undefined && moduleInfo.internal!=internal)
 				return false;
 
 			return true;
@@ -131,16 +170,15 @@ export default class ChainMeta {
 		if (!moduleInfo)
 			return false;
 
-		let enabled=true;
-		if (this.defaultEnableKey &&
-				moduleInfo.pkg.hasOwnProperty([this.defaultEnableKey]))
-			enabled=moduleInfo.pkg[this.defaultEnableKey];
+		let enabled=moduleInfo.defaultEnabled;
 
 		if (this.disableKey && 
+				this.pkg &&
 				arrayify(this.pkg[this.disableKey]).includes(moduleInfo.name))
 			enabled=false;
 
 		if (this.enableKey && 
+				this.pkg &&
 				arrayify(this.pkg[this.enableKey]).includes(moduleInfo.name))
 			enabled=true;
 
@@ -148,16 +186,11 @@ export default class ChainMeta {
 	}
 
 	isModuleDefaultEnabled(moduleName) {
-		let moduleInfo=this.moduleInfos.find(m=>m.name==moduleName);
+		let moduleInfo=this.moduleInfosByName[moduleName];
 		if (!moduleInfo)
 			return false;
 
-		let enabled=true;
-		if (this.defaultEnableKey &&
-				moduleInfo.pkg.hasOwnProperty([this.defaultEnableKey]))
-			enabled=moduleInfo.pkg[this.defaultEnableKey];
-
-		return enabled;
+		return moduleInfo.defaultEnabled;
 	}
 
 
@@ -175,7 +208,7 @@ export default class ChainMeta {
 
 	async savePkgJson() {
 		let content=JSON.stringify(this.pkg,null,2);
-		await fsp.writeFile(this.pkgPath,content);
+		await fsp.writeFile(path.join(this.cwd(),"package.json"),content);
 	}
 
 	assertClean() {
@@ -209,7 +242,7 @@ export async function chainImport(options) {
 			if (typeof mod[k]=="function")
 				functionNames.push(k);
 
-	let chain={chainMeta: chainMeta};
+	let chain={chainMeta: chainMeta, cwd: ()=>chainMeta.cwd()};
 	for (let functionName of functionNames) {
 		let fns=[];
 		for (let mod of mods)
@@ -230,7 +263,7 @@ export async function chainImport(options) {
 async function chainSetEnable(chainConf, moduleName, enable) {
 	let chainMeta=await chainLoadMeta(chainConf);
 
-	if (!chainMeta.enableKey || !chainMeta.disableKey)
+	if (!chainMeta.enableKey || !chainMeta.disableKey || !chainMeta.pkg)
 		throw new Error("Enable/disable not available");
 
 	if (!chainMeta.isModuleKnown(moduleName))
@@ -244,8 +277,12 @@ async function chainSetEnable(chainConf, moduleName, enable) {
 		if (enable && !chainMeta.isModuleDefaultEnabled(moduleName))
 			pkg[chainMeta.enableKey].push(moduleName);
 
-		else if (!enable && chainMeta.isModuleDefaultEnabled(moduleName))
+		else if (!enable && chainMeta.isModuleDefaultEnabled(moduleName)) {
+			if (chainMeta.getModuleInfoByName(moduleName).internal)
+				throw new DeclaredError("Internal plugin, can't disable: "+moduleName);
+
 			pkg[chainMeta.disableKey].push(moduleName);
+		}
 	}
 
 	if (!pkg[chainMeta.enableKey].length)
@@ -272,7 +309,7 @@ export async function chainList(chain, query={}) {
 
 	return infos.map(info=>({
 		name: info.name,
-		description: info.pkg.description,
+		description: info.description,
 		enabled: chainMeta.isModuleEnabled(info.name),
 	}));
 }

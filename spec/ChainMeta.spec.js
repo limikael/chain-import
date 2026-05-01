@@ -12,6 +12,20 @@ async function initTestProject() {
 }
 
 describe("ChainMeta",()=>{
+	it("refactor",async ()=>{
+		await initTestProject();
+
+		let chainMeta=await chainLoadMeta({
+			cwd: path.join(__dirname,"testproject"),
+			keyword: "sys-plugin",
+			exportPath: "hello",
+			defaultEnableKey: "defaultEn",
+			workspaceKey: "packages"
+		});
+
+		//console.log(chainMeta.getModuleInfos());
+	});
+
 	it("can load meta",async ()=>{
 		await initTestProject();
 
@@ -20,26 +34,26 @@ describe("ChainMeta",()=>{
 			conditions: ["peac"],
 			keyword: "sys-plugin",
 			exportPath: "hello",
-			extraModuleDirs: path.join(__dirname,"testproject/packages"),
+			workspaceKey: "packages",
 			defaultEnableKey: "defaultEn",
 			enableKey: "enablePlugins",
 			disableKey: "disablePlugins",
 		});
 
 		expect(chainMeta.pkg.name).toEqual("testproject");
-		expect(chainMeta.getModuleInfos().length).toEqual(2);
-		expect(chainMeta.moduleInfos[0].exportPathname).toContain("hello-peac.js");
+		expect(chainMeta.getModuleInfos().length).toEqual(3);
+		expect(chainMeta.moduleInfos[1].exportPathname).toContain("hello-peac.js");
 		expect(chainMeta.getModuleInfos({name: "someplugin"}).length).toEqual(1);
 		expect(chainMeta.getModuleInfos({name: "undef"}).length).toEqual(0);
 
 		expect(chainMeta.isModuleEnabled("undef")).toEqual(false);
 		expect(chainMeta.isModuleEnabled("someplugin")).toEqual(true);
-		expect(chainMeta.getModuleInfos({enabled: true}).length).toEqual(1);
+		expect(chainMeta.getModuleInfos({enabled: true}).length).toEqual(2);
 
 		let enabled=chainMeta.getModuleInfos({enabled: true});
-		expect(enabled[0].name).toEqual("someplugin");
+		expect(enabled[1].name).toEqual("someplugin");
 
-		expect((await chainLoadMeta(chainMeta)).getModuleInfos().length).toEqual(2);
+		expect((await chainLoadMeta(chainMeta)).getModuleInfos().length).toEqual(3);
 	});
 
 	it("can import",async ()=>{
@@ -50,7 +64,7 @@ describe("ChainMeta",()=>{
 			conditions: ["peac"],
 			keyword: "sys-plugin",
 			exportPath: "hello",
-			extraModuleDirs: path.join(__dirname,"testproject/packages"),
+			workspaceKey: "packages",
 			defaultEnableKey: "defaultEn",
 			enableKey: "enablePlugins",
 			disableKey: "disablePlugins",

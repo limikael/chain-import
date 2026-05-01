@@ -1,7 +1,12 @@
 {
 	"name": "testproject",
 	"type": "module",
+	"keywords": ["sys-plugin"],
 	"dependencies": {
 		"someplugin": "1.0.0"
+	},
+	"packages": "packages",
+	"exports": {
+		"./hello": "./hello-testproject.js"
 	}
 }
