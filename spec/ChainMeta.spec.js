@@ -1,4 +1,4 @@
-import {chainLoadMeta, chainImport, chainEnable, chainDisable} from "../src/exports-node.js";
+import {chainLoadMeta, chainImport, chainEnable, chainDisable, chainSetContract} from "../src/exports-node.js";
 import {dirnameFromImportMeta} from "../src/node-util.js";
 import path from "node:path";
 import fs, {promises as fsp} from "node:fs";
@@ -99,5 +99,39 @@ describe("ChainMeta",()=>{
 		await chainDisable(chain,"someplugin");
 		chain=await chainImport(chain.chainMeta.getConf());
 		expect(chain.build).toBeUndefined();
+	});
+
+	it("can call with contract",async ()=>{
+		await initTestProject();
+
+		let chain=await chainImport({
+			cwd: path.join(__dirname,"testproject"),
+			conditions: ["peac"],
+			keyword: "sys-plugin",
+			exportPath: "hello",
+			workspaceKey: "packages",
+			defaultEnableKey: "defaultEn",
+			enableKey: "enablePlugins",
+			disableKey: "disablePlugins",
+		});
+
+		let ev={messages: []};
+		await chain.build(ev);
+		expect(ev.messages.length).toEqual(1);
+		expect(ev.messages).toContain("hello-peac here");
+
+		await chainEnable(chain,"plugin2");
+		//console.log(chain.chainMeta.pkg);
+
+		chain=await chainImport(chain.chainMeta.getConf());
+
+		chainSetContract(chain,"doFirst","first-defined");
+		chainSetContract(chain,"doCollect","collect");
+		chainSetContract(chain,"doCollectSync",["collect","sync"]);
+
+		expect(await chain.doFirst()).toEqual("test");
+		expect(await chain.doCollect()).toEqual(["one","two"]);
+
+		expect(chain.doCollectSync()).toEqual(["once","twice"]);
 	});
 });

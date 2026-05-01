@@ -5,10 +5,12 @@ import resolvePackagePath from "resolve-package-path";
 import fs, {promises as fsp} from "fs";
 import path from "node:path";
 import {DeclaredError} from "./js-util.js";
+import {callContractFunctions} from "./function-contract.js";
 
 export default class ChainMeta {
 	constructor({cwd, roots, keyword, exportPath, conditions, workspaceKey,
-			defaultEnableKey, enableKey, disableKey, internalKey, internal}) {
+			defaultEnableKey, enableKey, disableKey, internalKey, internal,
+			contracts}) {
 		this.pkgDir=cwd;
 		this.roots=arrayify(roots);
 		this.keyword=keyword;
@@ -23,6 +25,7 @@ export default class ChainMeta {
 		this.workspaceKey=workspaceKey;
 		this.internal=arrayify(internal);
 		this.internalKey=internalKey;
+		this.contracts=contracts??{};
 
 		this.chainMeta=this;
 		this.moduleInfos=[];
@@ -46,6 +49,7 @@ export default class ChainMeta {
 			workspaceKey: this.workspaceKey,
 			internal: this.internal,
 			internalKey: this.internalKey,
+			contracts: this.contracts,
 		});
 	}
 
@@ -235,13 +239,14 @@ export async function chainLoadMeta(options) {
 export async function chainImport(options) {
 	let chainMeta=await chainLoadMeta(options);
 	let mods=await chainMeta.importModules();
-	let functionNames=[];
+	let functionNames=new Set();
 
 	for (let mod of mods)
 		for (let k in mod)
 			if (typeof mod[k]=="function")
-				functionNames.push(k);
+				functionNames.add(k);
 
+	functionNames = [...functionNames];
 	let chain={chainMeta: chainMeta, cwd: ()=>chainMeta.cwd()};
 	for (let functionName of functionNames) {
 		let fns=[];
@@ -249,11 +254,12 @@ export async function chainImport(options) {
 			if (typeof mod[functionName]=="function")
 				fns.push(mod[functionName]);
 
-		fns.sort((a,b)=>a.priority??10-b.priority??10);
-		chain[functionName]=async function(...args) {
+		fns.sort((a,b)=>(a.priority??10)-(b.priority??10));
+		//console.log(fns);
+		chain[functionName]=function(...args) {
 			chainMeta.assertClean();
-			for (let fn of fns)
-				await fn(...args);
+			let tokens=chainMeta.contracts[functionName];
+			return callContractFunctions(tokens, fns, args)
 		}
 	}
 
@@ -312,4 +318,9 @@ export async function chainList(chain, query={}) {
 		description: info.description,
 		enabled: chainMeta.isModuleEnabled(info.name),
 	}));
+}
+
+export function chainSetContract(chain, functionName, ...tokens) {
+	tokens=tokens.flat(Infinity);
+	chain.chainMeta.contracts[functionName]=tokens;
 }

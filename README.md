@@ -2,13 +2,17 @@
 
 Compose and execute exports from multiple packages as a single interface.
 
-`chain-import` lets you build **zero-configuration plugin systems** using standard Node.js dependency resolution and `package.json` exports. It discovers plugins automatically, merges their exported functions, and executes them in a predictable order.
+`chain-import` lets you build **zero-configuration plugin systems** using standard Node.js dependency resolution and `package.json` exports. It discovers plugins automatically, merges their exported functions, and executes them using a **declarative contract system**.
+
+---
 
 ## Installation
 
 ```bash
 npm install chain-import
 ```
+
+---
 
 ## Quick Example
 
@@ -23,15 +27,54 @@ const chain = await chainImport({
 await chain.build({ messages: [] });
 ```
 
-If multiple plugins implement `build`, all of them will be executed in sequence.
+---
 
-## How It Works
+## Core Idea
 
-1. `chain-import` scans your project's **dependencies**
-2. It finds packages that expose a given export path
-3. It imports those modules
-4. It merges their exported functions
-5. Calling a method executes all implementations
+- Packages export functions via `package.json` exports
+- `chain-import` discovers them automatically
+- Functions with the same name are grouped
+- Execution is controlled by **contracts**
+
+---
+
+## Function Contracts
+
+Contracts define:
+
+- **how many functions run**
+- **how they run**
+- **how return values are handled**
+
+### Result Contracts (choose one)
+
+- `procedural` → ignore return values
+- `collect` → return array of all results
+- `collect-flat` → flatten one level
+- `first-defined` → return first non-undefined result
+
+### Execution Contracts (choose one)
+
+- `sync` → call synchronously (Promise = error)
+- `async` → sequential `await`
+- `async-parallel` → `Promise.all`
+
+### Example
+
+```js
+chainSetContract(chain, "init", "first-defined", "async");
+chainSetContract(chain, "build", "procedural", "async");
+chainSetContract(chain, "clientInit", "procedural", "sync");
+chainSetContract(chain, "routes", "collect-flat", "async-parallel");
+```
+
+### Rules
+
+- Exactly **one result contract**
+- Exactly **one execution contract**
+- Invalid combinations (e.g. `first-defined + async-parallel`) throw errors
+
+---
 
 ## Plugin Example
 
@@ -42,7 +85,8 @@ If multiple plugins implement `build`, all of them will be executed in sequence.
   "name": "my-plugin",
   "exports": {
     "./build": "./build.js"
-  }
+  },
+  "keywords": ["my-plugin"]
 }
 ```
 
@@ -54,80 +98,51 @@ export async function build(ctx) {
 }
 ```
 
-## Multiple Plugins
-
-If multiple plugins export the same function:
-
-```js
-export async function build(ctx) { ... }
-```
-
-Then:
-
-```js
-await chain.build(ctx);
-```
-
-Will call all implementations sequentially.
+---
 
 ## Execution Order
 
-Plugins can define priority:
-
 ```js
-export async function build(ctx) {
-  // ...
-}
-
+export async function build(ctx) {}
 build.priority = 5;
 ```
 
-* Lower number = earlier execution
-* Default priority = `10`
+- Lower number = earlier execution
+- Default = `10`
 
-## Error Handling
-
-* Execution is **fail-fast**
-* If a plugin throws, remaining plugins are not executed
-
-## Return Values
-
-* Return values are ignored
-* Plugins should mutate the provided context object
+---
 
 ## Plugin Discovery
 
-* Recursively scans `dependencies`
-* Ignores `devDependencies` and others
-* Uses Node.js module resolution
+- Starts from `cwd` and `roots`
+- Expands:
+  - dependencies
+  - workspaces (`workspaceKey`)
+- Filters by:
+  - `keyword`
+  - `exportPath`
 
-### Filtering by keyword
+---
 
-```js
-const chain = await chainImport({
-  cwd: process.cwd(),
-  exportPath: "build",
-  keyword: "my-plugin"
-});
-```
+## Visibility
 
-Only packages with that keyword in `package.json` are included.
+Plugins can be **internal**:
+
+- hidden from `lsmod`
+- cannot be enabled/disabled
+- still executed
+
+Internal is computed as:
+
+- plugin metadata
+- OR caller override
+- OR structural rule (roots except cwd)
+
+---
 
 ## Enabling / Disabling Plugins
 
-### Plugin default
-
-Plugins can define:
-
-```json
-{
-  "defaultEnable": true
-}
-```
-
-If omitted → defaults to enabled.
-
-### Project configuration
+### Project config
 
 ```json
 {
@@ -136,123 +151,120 @@ If omitted → defaults to enabled.
 }
 ```
 
-* Matches exact package names
-* No partial matching
-
 ### Rules
 
-1. Start with plugin default (`true` if unspecified)
-2. Apply overrides:
+- default: enabled
+- disable overrides enable
+- internal plugins cannot be modified
 
-   * `disablePlugins` → force disabled
-   * `enablePlugins` → force enabled
+---
 
-If a plugin appears in both lists:
+## API
 
-* Behavior is undefined (do not rely on it)
-
-## Metadata API
-
-### Load metadata
+### chainImport
 
 ```js
-import { chainLoadMeta } from "chain-import";
-
-const meta = await chainLoadMeta({
-  cwd: process.cwd(),
-  exportPath: "build"
-});
+const chain = await chainImport(options);
 ```
 
-### List plugins
+Creates executable chain.
+
+---
+
+### chainLoadMeta
 
 ```js
-import { chainList } from "chain-import";
+const meta = await chainLoadMeta(options);
+```
 
+Loads metadata without executing.
+
+---
+
+### chainList
+
+```js
 const list = await chainList(meta);
 ```
 
-Returns:
+Returns plugin list.
+
+---
+
+### chainEnable / chainDisable
 
 ```js
-[
-  {
-    name: "pk-info",
-    description: "Provide system info",
-    enabled: true
-  }
-]
+await chainEnable(meta, "plugin");
+await chainDisable(meta, "plugin");
 ```
 
-## Enable / Disable via API
+---
+
+### chainSetContract
 
 ```js
-import { chainEnable, chainDisable } from "chain-import";
-
-await chainEnable(meta, "my-plugin");
-await chainDisable(meta, "other-plugin");
+chainSetContract(chain, method, ...tokens);
 ```
 
-This updates the project's `package.json`.
+Defines execution contract.
 
-## Commander Integration
+---
 
-`chain-import` can be used to build plugin-based CLI tools with `commander`.
-
-### Setup
+### chainAttachCommanderCommand
 
 ```js
-import { program } from "commander";
-import { chainImport, chainAttachCommanderCommand } from "chain-import";
-
-const chain = await chainImport({
-  cwd: process.cwd(),
-  exportPath: "cli"
-});
-
-chainAttachCommanderCommand(chain, program, "publish")
-  .option("--edge, -e", "Publish to edge")
-  .argument("<file>", "File to publish")
-  .description("Publish project");
-
-await program.parseAsync(process.argv);
+chainAttachCommanderCommand(chain, program, "publish");
 ```
 
-### Plugin command
+Attach CLI commands.
+
+---
+
+## Options
 
 ```js
-export async function publish({ edge, args }) {
-  console.log("Publishing", args[0], edge ? "to edge" : "");
+{
+  cwd,
+  roots,
+  keyword,
+  exportPath,
+  conditions,
+  workspaceKey,
+  defaultEnableKey,
+  enableKey,
+  disableKey,
+  internalKey,
+  internal,
+  contracts
 }
 ```
 
-### Behavior
+### Key Options
 
-* Each plugin can implement the command
-* All implementations are executed
-* Same rules apply:
+- `cwd` → main project root
+- `roots` → additional roots
+- `keyword` → plugin filter
+- `exportPath` → entrypoint
+- `workspaceKey` → workspace support (e.g. "workspaces")
+- `internal` → force internal plugins
+- `contracts` → predefined contracts
 
-  * priority ordering
-  * fail-fast execution
-  * no return values
-
-## When to Use
-
-* Plugin-based systems
-* Extensible build pipelines
-* CLI tools with pluggable commands
-* Systems where behavior should be composed from dependencies
+---
 
 ## Design Principles
 
-* Zero configuration
-* Convention over configuration
-* Uses standard Node.js features (`exports`, dependencies)
-* Deterministic execution
-* Simple mental model
+- Zero configuration
+- Convention over configuration
+- Deterministic execution
+- Explicit contracts
+- Minimal abstraction
+
+---
 
 ## Summary
 
-`chain-import` turns your dependency graph into a plugin system.
+`chain-import` turns your dependency graph into a **declarative execution system**.
 
-Define behavior in packages, export functions, and let `chain-import` compose and execute them.
+- discovery via packages
+- composition via function names
+- execution via contracts
