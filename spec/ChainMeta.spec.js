@@ -128,10 +128,12 @@ describe("ChainMeta",()=>{
 		chainSetContract(chain,"doFirst","first-defined");
 		chainSetContract(chain,"doCollect","collect");
 		chainSetContract(chain,"doCollectSync",["collect","sync"]);
+		chainSetContract(chain,"doesntExist","first-defined");
 
 		expect(await chain.doFirst()).toEqual("test");
 		expect(await chain.doCollect()).toEqual(["one","two"]);
 
 		expect(chain.doCollectSync()).toEqual(["once","twice"]);
+		expect(chain.doesntExist()).toEqual(undefined);
 	});
 });

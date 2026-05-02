@@ -5,7 +5,7 @@ import resolvePackagePath from "resolve-package-path";
 import fs, {promises as fsp} from "fs";
 import path from "node:path";
 import {DeclaredError} from "./js-util.js";
-import {callContractFunctions} from "./function-contract.js";
+import {callContractFunctions, createDummyFunction} from "./function-contract.js";
 
 export default class ChainMeta {
 	constructor({cwd, roots, keyword, exportPath, conditions, workspaceKey,
@@ -197,7 +197,6 @@ export default class ChainMeta {
 		return moduleInfo.defaultEnabled;
 	}
 
-
 	isModuleInstalled(name) {
 		let mods=this.getModuleInfos({name});
 		//console.log(mods);
@@ -263,6 +262,10 @@ export async function chainImport(options) {
 		}
 	}
 
+	for (let k in chainMeta.contracts)
+		if (!chain[k])
+			chain[k]=createDummyFunction(chainMeta.contracts[k]);
+
 	return chain;
 }
 
@@ -323,4 +326,11 @@ export async function chainList(chain, query={}) {
 export function chainSetContract(chain, functionName, ...tokens) {
 	tokens=tokens.flat(Infinity);
 	chain.chainMeta.contracts[functionName]=tokens;
+
+	if (!(chain instanceof ChainMeta)) {
+		let chainMeta=chain.chainMeta;
+		for (let k in chainMeta.contracts)
+			if (!chain[k])
+				chain[k]=createDummyFunction(chainMeta.contracts[k]);
+	}
 }

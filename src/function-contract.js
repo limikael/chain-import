@@ -2,6 +2,11 @@ function normalizeTokens(tokens) {
     if (!tokens)
         tokens=[];
 
+    for (let t of tokens)
+        if (!["procedural","collect","collect-flat","first-defined",
+                "sync","async","async-parallel"].includes(t))
+            throw new Error("Unknown contract token: "+t);
+
     let result = "procedural";
     let execution = "async";
 
@@ -14,6 +19,16 @@ function normalizeTokens(tokens) {
     }
 
     return { result, execution };
+}
+
+export function createDummyFunction(tokens) {
+    if (!tokens)
+        tokens=[];
+
+    if (tokens.includes("collect") || tokens.includes("collect-flat"))
+        return (()=>([]));
+
+    return (()=>{});
 }
 
 export function callContractFunctions(tokens, fns, args) {
