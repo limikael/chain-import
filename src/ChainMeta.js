@@ -117,9 +117,11 @@ export default class ChainMeta {
 
 		let deps=pkg.dependencies??{};
 		for (let depName in deps) {
+			//console.log("resolve "+depName+" pkgPath: "+pkgPath);
+
 			let p=resolvePackagePath(depName,pkgPath);
 			if (!p)
-				throw new Error("cannot resolve: "+depName);
+				throw new Error("cannot resolve: "+depName+" (from "+pkgPath+")");
 
 			await this.processPackagePath(path.dirname(p));
 		}
